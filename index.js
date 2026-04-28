@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // APP REVIEW AI AGENT — Backend Server
-// Fetches reviews from BOTH Android and iOS via AppFollow, analyses with Groq,
-// stores in Supabase, sends weekly email reports and emergency alerts.
+// Fetches reviews from BOTH Android and iOS via AppFollow, analyses with Groq
+// (supports English + Hindi), stores in Supabase, sends email reports.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const express    = require("express");
@@ -19,27 +19,27 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 // ─── ENV VARIABLES (set these in Render dashboard) ───────────────────────────
-// APPFOLLOW_API_KEY        — your AppFollow API key
-// APPFOLLOW_APP_ID_ANDROID — Android app ext_id (e.g. com.cris.irctc)
-// APPFOLLOW_APP_ID_IOS     — iOS app ext_id (e.g. 1234567890)
-// GROQ_API_KEY             — from console.groq.com (free)
-// SUPABASE_URL             — from Supabase project settings
-// SUPABASE_KEY             — Supabase service_role key
-// GMAIL_USER               — your Gmail address
-// GMAIL_APP_PASSWORD       — 16-char Gmail App Password
-// REPORT_EMAIL             — where to send reports
-// APP_NAME                 — your app display name (e.g. IRCTC)
-// EMERGENCY_KEYWORDS       — comma-separated keywords
-// RATING_THRESHOLD         — avg rating below this triggers alert (e.g. 3.0)
-// NEGATIVE_PCT_THRESHOLD   — % negative reviews threshold (e.g. 40)
-// LOW_STAR_SPIKE_PCT       — % 1-2 star spike threshold (e.g. 30)
+// APPFOLLOW_API_KEY      — your AppFollow API key
+// APPFOLLOW_CID_ANDROID  — Android app internal ID from AppFollow URL (e.g. 643444)
+// APPFOLLOW_CID_IOS      — iOS app internal ID from AppFollow URL (e.g. 643443)
+// GROQ_API_KEY           — from console.groq.com (free)
+// SUPABASE_URL           — from Supabase project settings
+// SUPABASE_KEY           — Supabase service_role key
+// GMAIL_USER             — your Gmail address
+// GMAIL_APP_PASSWORD     — 16-char Gmail App Password
+// REPORT_EMAIL           — where to send reports
+// APP_NAME               — your app display name (e.g. IRCTC)
+// EMERGENCY_KEYWORDS     — comma-separated keywords
+// RATING_THRESHOLD       — avg rating below this triggers alert (e.g. 3.0)
+// NEGATIVE_PCT_THRESHOLD — % negative reviews threshold (e.g. 40)
+// LOW_STAR_SPIKE_PCT     — % 1-2 star spike threshold (e.g. 30)
 
 const GROQ_KEY     = process.env.GROQ_API_KEY;
 const AF_KEY       = process.env.APPFOLLOW_API_KEY;
-const AF_ANDROID   = process.env.APPFOLLOW_APP_ID_ANDROID;
-const AF_IOS       = process.env.APPFOLLOW_APP_ID_IOS;
+const AF_ANDROID   = process.env.APPFOLLOW_CID_ANDROID;
+const AF_IOS       = process.env.APPFOLLOW_CID_IOS;
 const APP_NAME     = process.env.APP_NAME || "My App";
-const EMERGENCY_KW = (process.env.EMERGENCY_KEYWORDS || "crash,crashes,freeze,freezing,fraud,refund,scam,hack,stolen,broken,error,data loss").split(",").map(k => k.trim().toLowerCase());
+const EMERGENCY_KW = (process.env.EMERGENCY_KEYWORDS || "crash,crashes,freeze,freezing,fraud,refund,scam,hack,stolen,broken,error,data loss,धोखा,क्रैश,रिफंड,गड़बड़").split(",").map(k => k.trim().toLowerCase());
 const RATING_THRESH  = parseFloat(process.env.RATING_THRESHOLD || "3.0");
 const NEG_PCT_THRESH = parseInt(process.env.NEGATIVE_PCT_THRESHOLD || "40");
 const SPIKE_THRESH   = parseInt(process.env.LOW_STAR_SPIKE_PCT || "30");
@@ -85,22 +85,29 @@ async function callAI(systemPrompt, userPrompt) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 1: Fetch reviews from AppFollow for one app ID
+// STEP 1: Fetch reviews from AppFollow using internal CID
 // ─────────────────────────────────────────────────────────────────────────────
-async function fetchFromAppFollow(extId, platform) {
-  if (!extId) return [];
-  console.log(`Fetching ${platform} reviews for ${extId}...`);
-  const url = `https://api.appfollow.io/api/1.0/reviews?ext_id=${extId}&country=all&per_page=10&page=1`;
+async function fetchFromAppFollow(cid, platform) {
+  if (!cid) {
+    console.log(`No CID set for ${platform}, skipping`);
+    return [];
+  }
+  console.log(`Fetching ${platform} reviews (cid: ${cid})...`);
+
+  const url = `https://api.appfollow.io/api/1.0/reviews?cid=${cid}&per_page=10&page=1`;
   const res = await fetch(url, {
     headers: { "X-AppFollow-API-Token": AF_KEY },
   });
+
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`AppFollow ${platform} error ${res.status}: ${err}`);
   }
+
   const data = await res.json();
   const raw = data.reviews || data.data || data.list || [];
   console.log(`Got ${raw.length} ${platform} reviews`);
+
   return raw.map((r) => ({
     ext_id:   `${platform}_${r.id || r.review_id || Math.random()}`,
     text:     r.text || r.body || r.content || "",
@@ -108,6 +115,7 @@ async function fetchFromAppFollow(extId, platform) {
     date:     r.date || r.created_at || new Date().toISOString().split("T")[0],
     platform: platform,
     author:   r.author || r.username || r.user_name || "Anonymous",
+    language: r.lang || r.language || "unknown",
   }));
 }
 
@@ -115,29 +123,29 @@ async function fetchFromAppFollow(extId, platform) {
 // STEP 2: Fetch from BOTH Android and iOS and combine
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchAllReviews() {
-  const [androidReviews, iosReviews] = await Promise.allSettled([
+  const [androidResult, iosResult] = await Promise.allSettled([
     fetchFromAppFollow(AF_ANDROID, "Android"),
     fetchFromAppFollow(AF_IOS, "iOS"),
   ]);
 
+  if (androidResult.status === "rejected") console.error("Android fetch failed:", androidResult.reason.message);
+  if (iosResult.status    === "rejected") console.error("iOS fetch failed:",     iosResult.reason.message);
+
   const combined = [
-    ...(androidReviews.status === "fulfilled" ? androidReviews.value : []),
-    ...(iosReviews.status    === "fulfilled" ? iosReviews.value    : []),
+    ...(androidResult.status === "fulfilled" ? androidResult.value : []),
+    ...(iosResult.status    === "fulfilled" ? iosResult.value    : []),
   ];
 
-  if (androidReviews.status === "rejected") console.error("Android fetch failed:", androidReviews.reason.message);
-  if (iosReviews.status    === "rejected") console.error("iOS fetch failed:",     iosReviews.reason.message);
-
-  console.log(`Total combined reviews: ${combined.length}`);
+  console.log(`Total combined: ${combined.length} reviews (Android: ${androidResult.status === "fulfilled" ? androidResult.value.length : 0}, iOS: ${iosResult.status === "fulfilled" ? iosResult.value.length : 0})`);
   return combined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 3: Analyse reviews with Groq AI (batches of 8)
+// STEP 3: Analyse reviews with Groq AI — supports English AND Hindi
 // ─────────────────────────────────────────────────────────────────────────────
 async function analyseReviews(reviews) {
   console.log(`Analysing ${reviews.length} reviews with Groq...`);
-  const kwList = EMERGENCY_KW.slice(0, 8).join(", ");
+  const kwList = EMERGENCY_KW.slice(0, 10).join(", ");
   const results = [];
 
   for (let i = 0; i < reviews.length; i += 8) {
@@ -152,18 +160,32 @@ async function analyseReviews(reviews) {
 
     try {
       const json = await callAI(
-        "You are a mobile app review analyst. Return ONLY a JSON array, no markdown, no explanation.",
-        `Analyse these app reviews. Return a JSON array where each item has:
+        `You are a mobile app review analyst for ${APP_NAME}, an Indian railway booking app.
+Reviews may be written in English or Hindi (Devanagari script). You must understand BOTH languages fully.
+Return ONLY a JSON array — no markdown, no explanation, no extra text.`,
+
+        `Analyse these app reviews. Some may be in Hindi — understand them fully.
+Return a JSON array where each item has:
 {
   "i": <original index number>,
   "sentiment": "positive" | "negative" | "neutral",
   "priority": "critical" | "high" | "medium" | "low",
-  "summary": "one sentence summary",
-  "issues": ["problem 1", "problem 2"],
-  "positives": ["good thing 1"],
+  "summary": "one sentence in English summarising the review",
+  "issues": ["problem 1 in English", "problem 2 in English"],
+  "positives": ["good thing 1 in English"],
   "is_emergency": true or false
 }
+
+Priority guide:
+- critical = app crash, payment failure, data loss, security issue
+- high = major bug, booking failure, login issue
+- medium = UI problem, slow performance, missing feature
+- low = minor suggestion, general feedback
+
 Set is_emergency=true if review mentions: ${kwList}
+
+Always write summary, issues and positives in English even if the review is in Hindi.
+
 Reviews: ${JSON.stringify(input)}`
       );
 
@@ -178,13 +200,20 @@ Reviews: ${JSON.stringify(input)}`
     } catch (e) {
       console.error(`Batch ${i} error:`, e.message);
       batch.forEach((r, j) => {
-        results[i + j] = { ...r, sentiment: "neutral", priority: "low", summary: "", issues: [], positives: [], is_emergency: false };
+        results[i + j] = {
+          ...r,
+          sentiment: "neutral", priority: "low",
+          summary: "", issues: [], positives: [], is_emergency: false
+        };
       });
     }
   }
 
+  // Fill any gaps
   reviews.forEach((r, i) => {
-    if (!results[i]) results[i] = { ...r, sentiment: "neutral", priority: "low", summary: "", issues: [], positives: [], is_emergency: false };
+    if (!results[i]) {
+      results[i] = { ...r, sentiment: "neutral", priority: "low", summary: "", issues: [], positives: [], is_emergency: false };
+    }
   });
 
   return results;
@@ -236,7 +265,9 @@ async function generateReport(analysed) {
 
   const json = await callAI(
     "You are a senior product analyst. Return ONLY valid JSON, no markdown.",
-    `Generate a weekly app review report for ${APP_NAME}. Return JSON:
+    `Generate a weekly app review report for ${APP_NAME} (Indian railway booking app).
+All output must be in English.
+Return JSON:
 {
   "overallTrend": "improving" | "declining" | "stable" | "mixed",
   "executiveSummary": "2-3 sentences",
@@ -326,10 +357,10 @@ ${alertSection}
   <strong style="color:${trendColor}">${(report.overallTrend||"").toUpperCase()}</strong>
   <p style="margin:12px 0 0;font-size:14px;line-height:1.6">${report.executiveSummary}</p>
 </div>
-<table style="width:100%;border-collapse:collapse;margin-bottom:24px">
+<table style="width:100%;border-collapse:separate;border-spacing:4px;margin-bottom:24px">
   <tr>
     ${[["Total",report.stats.total],["Android",report.stats.android],["iOS",report.stats.ios],["Avg Rating",report.stats.avgRating+"★"],["Positive",report.stats.positive],["Negative",report.stats.negative]]
-      .map(([l,v])=>`<td style="background:#f3f4f6;border-radius:8px;padding:10px;text-align:center;font-size:12px"><div style="color:#6b7280">${l}</div><div style="font-size:18px;font-weight:600;margin-top:2px">${v}</div></td>`).join("")}
+      .map(([l,v])=>`<td style="background:#f3f4f6;border-radius:8px;padding:10px;text-align:center"><div style="font-size:11px;color:#6b7280">${l}</div><div style="font-size:18px;font-weight:600;margin-top:2px">${v}</div></td>`).join("")}
   </tr>
 </table>
 <h2 style="font-size:15px;color:#dc2626;margin-bottom:12px">Top Problems</h2>
@@ -344,7 +375,7 @@ ${alertSection}
 <ol style="padding-left:20px;margin-bottom:24px">
   ${(report.recommendedActions||[]).map(a=>`<li style="margin-bottom:6px;font-size:14px">${a}</li>`).join("")}
 </ol>
-<p style="font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:16px">Auto-generated by ${APP_NAME} Review Agent · Powered by Groq AI</p>
+<p style="font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:16px">Auto-generated by ${APP_NAME} Review Agent · Powered by Groq AI · Supports English & Hindi</p>
 </body></html>`;
 }
 
@@ -352,7 +383,7 @@ function buildEmergencyEmail(alerts) {
   return `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
 <div style="background:#fef2f2;border:2px solid #dc2626;border-radius:8px;padding:20px">
   <h1 style="font-size:18px;color:#dc2626;margin:0 0 12px">EMERGENCY ALERT — ${APP_NAME}</h1>
-  <p style="font-size:14px;margin-bottom:16px">Critical issues detected. Immediate attention required.</p>
+  <p style="font-size:14px;margin-bottom:16px">Critical issues detected in app reviews. Immediate attention required.</p>
   <ul style="padding-left:20px;margin:0">
     ${alerts.map(a=>`<li style="margin-bottom:8px;font-size:14px;color:#dc2626">${a.msg}</li>`).join("")}
   </ul>
@@ -416,19 +447,28 @@ app.post("/api/run", async (req, res) => {
 });
 
 app.get("/api/reviews", async (req, res) => {
-  const { data, error } = await supabase.from("reviews").select("*").order("date", { ascending: false }).limit(200);
+  const { data, error } = await supabase
+    .from("reviews").select("*")
+    .order("date", { ascending: false }).limit(200);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
 
 app.get("/api/reports", async (req, res) => {
-  const { data, error } = await supabase.from("reports").select("*").order("generated_at", { ascending: false }).limit(20);
+  const { data, error } = await supabase
+    .from("reports").select("*")
+    .order("generated_at", { ascending: false }).limit(20);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", app: APP_NAME, android: AF_ANDROID || "not set", ios: AF_IOS || "not set", time: new Date().toISOString() });
+  res.json({
+    status: "ok", app: APP_NAME,
+    android_cid: AF_ANDROID || "not set",
+    ios_cid: AF_IOS || "not set",
+    time: new Date().toISOString()
+  });
 });
 
 app.get("*", (req, res) => {
@@ -438,7 +478,7 @@ app.get("*", (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n${APP_NAME} Review Agent running on port ${PORT}`);
-  console.log(`Android: ${AF_ANDROID || "not set"}`);
-  console.log(`iOS:     ${AF_IOS     || "not set"}`);
+  console.log(`Android CID: ${AF_ANDROID || "not set"}`);
+  console.log(`iOS CID:     ${AF_IOS     || "not set"}`);
   console.log(`Schedule: Every Sunday 9:00 AM IST\n`);
 });
