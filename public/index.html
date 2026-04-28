@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App Review Agent</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f9fafb; --surface: #ffffff; --border: #e5e7eb;
+    --text: #111827; --muted: #6b7280; --accent: #2563eb;
+    --danger-bg: #fef2f2; --danger: #dc2626; --danger-border: #fca5a5;
+    --success-bg: #f0fdf4; --success: #16a34a;
+    --warn-bg: #fffbeb; --warn: #d97706;
+    --info-bg: #eff6ff; --info: #2563eb;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header p  { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .btn { font-size: 13px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; font-weight: 500; transition: background .15s; }
+  .btn:hover { background: var(--bg); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.danger  { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .tab { font-size: 13px; padding: 8px 16px; border: none; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; font-weight: 500; }
+  .tab.active { color: var(--text); border-bottom-color: var(--text); }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .metric { background: var(--bg); border-radius: 10px; padding: 16px; text-align: center; }
+  .metric .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .metric .val   { font-size: 24px; font-weight: 600; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; display: inline-block; font-weight: 500; }
+  .badge.critical { background: var(--danger-bg); color: var(--danger); }
+  .badge.high     { background: var(--warn-bg);   color: var(--warn);   }
+  .badge.medium   { background: var(--info-bg);   color: var(--info);   }
+  .badge.low      { background: var(--bg);         color: var(--muted);  }
+  .badge.positive { background: var(--success-bg); color: var(--success); }
+  .badge.negative { background: var(--danger-bg);  color: var(--danger);  }
+  .badge.neutral  { background: var(--bg);          color: var(--muted);   }
+  .badge.emerg    { background: var(--danger);       color: #fff;           }
+  .alert-box { background: var(--danger-bg); border: 1px solid var(--danger-border); border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+  .alert-box .title { font-size: 13px; font-weight: 600; color: var(--danger); margin-bottom: 8px; }
+  .alert-box li { font-size: 13px; color: var(--danger); margin-bottom: 4px; }
+  .review-item { border-left: 3px solid var(--border); padding: 12px 16px; margin-bottom: 8px; background: var(--surface); border-radius: 0 8px 8px 0; border-top: 1px solid var(--border); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .review-item.critical { border-left-color: var(--danger); }
+  .review-item.high     { border-left-color: var(--warn); }
+  .review-item.medium   { border-left-color: var(--info); }
+  .review-item.emergency { border-left-color: var(--danger); background: var(--danger-bg); }
+  .review-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .stars { font-size: 13px; letter-spacing: 2px; }
+  .review-text { font-size: 13px; line-height: 1.6; margin-bottom: 4px; }
+  .review-summary { font-size: 12px; color: var(--muted); font-style: italic; }
+  .issue-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .issue-tag { font-size: 11px; padding: 2px 8px; border-radius: 6px; background: var(--danger-bg); color: var(--danger); }
+  .bar-wrap { margin-bottom: 12px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .bar-track { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 4px; transition: width .5s; }
+  .ranked-list li { display: flex; align-items: baseline; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; list-style: none; }
+  .ranked-list li:last-child { border-bottom: none; }
+  .rank-num { font-size: 18px; font-weight: 600; color: var(--muted); min-width: 24px; }
+  .actions-list li { display: flex; gap: 10px; padding: 8px 0; font-size: 14px; line-height: 1.5; list-style: none; }
+  .act-num { font-size: 13px; font-weight: 600; color: var(--muted); min-width: 22px; }
+  .status { font-size: 13px; color: var(--success); margin-top: 8px; }
+  .error  { font-size: 13px; color: var(--danger); margin-top: 8px; }
+  .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .filters select { font-size: 13px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+  .report-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+  .trend { font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 6px; text-transform: uppercase; }
+  .trend.improving { background: var(--success-bg); color: var(--success); }
+  .trend.declining { background: var(--danger-bg);  color: var(--danger); }
+  .trend.stable    { background: var(--bg);          color: var(--muted); }
+  .trend.mixed     { background: var(--warn-bg);     color: var(--warn); }
+  .exec-summary { font-size: 14px; line-height: 1.7; color: var(--text); }
+  .section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .section-title.red   { color: var(--danger); }
+  .section-title.green { color: var(--success); }
+  .no-data { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 14px; }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 600px) {
+    .grid4 { grid-template-columns: repeat(2, 1fr); }
+    .container { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <h1 id="app-title">App Review Agent</h1>
+      <p id="last-run">Loading…</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="run-btn" onclick="runPipeline()">Run Analysis Now</button>
+    </div>
+  </div>
+
+  <!-- Emergency Alert Banner -->
+  <div id="alert-banner" style="display:none"></div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('dashboard', this)">Dashboard</button>
+    <button class="tab" onclick="switchTab('reviews', this)">Reviews</button>
+    <button class="tab" onclick="switchTab('report', this)">Latest Report</button>
+  </div>
+
+  <!-- DASHBOARD TAB -->
+  <div id="tab-dashboard">
+    <div class="grid4" id="kpi-cards">
+      <div class="metric"><div class="label">Total Reviews</div><div class="val" id="kpi-total">—</div></div>
+      <div class="metric"><div class="label">Avg Rating</div><div class="val" id="kpi-rating">—</div></div>
+      <div class="metric"><div class="label">Negative %</div><div class="val" id="kpi-neg">—</div></div>
+      <div class="metric"><div class="label">Critical Issues</div><div class="val" id="kpi-crit">—</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <p class="section-title">Sentiment breakdown</p>
+      <div id="sentiment-bars">
+        <div class="no-data">Run analysis to see results</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Issues by priority</p>
+      <div id="priority-grid" style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="no-data" style="width:100%">Run analysis to see results</div>
+      </div>
+    </div>
+
+    <div id="run-status" style="margin-top:12px"></div>
+  </div>
+
+  <!-- REVIEWS TAB -->
+  <div id="tab-reviews" style="display:none">
+    <div class="filters">
+      <select id="filter-sentiment" onchange="renderReviews()">
+        <option value="all">All sentiments</option>
+        <option value="positive">Positive</option>
+        <option value="neutral">Neutral</option>
+        <option value="negative">Negative</option>
+      </select>
+      <select id="filter-priority" onchange="renderReviews()">
+        <option value="all">All priorities</option>
+        <option value="critical">Critical</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <span id="filter-count" style="font-size:13px;color:#6b7280"></span>
+    </div>
+    <div id="reviews-list"></div>
+  </div>
+
+  <!-- REPORT TAB -->
+  <div id="tab-report" style="display:none">
+    <div id="report-content">
+      <div class="no-data">No report yet. Click "Run Analysis Now" to generate one.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let allReviews = [];
+  let latestReport = null;
+  let latestAlerts = [];
+
+  // ── Load data on page open ────────────────────────────────────────────────
+  async function loadData() {
+    document.getElementById("last-run").textContent = "Loading data…";
+    try {
+      const [revRes, repRes] = await Promise.all([
+        fetch("/api/reviews"),
+        fetch("/api/reports"),
+      ]);
+      allReviews = await revRes.json();
+      const reports = await repRes.json();
+      latestReport  = reports[0] || null;
+
+      // Build alerts from latest report stats if they exist
+      latestAlerts = buildAlertsFromData(allReviews);
+
+      updateDashboard();
+      renderReviews();
+      renderReport();
+
+      document.getElementById("last-run").textContent =
+        allReviews.length
+          ? `${allReviews.length} reviews loaded · Last updated ${new Date(allReviews[0]?.analysed_at || Date.now()).toLocaleString("en-IN")}`
+          : "No reviews yet. Click Run Analysis Now.";
+    } catch (e) {
+      document.getElementById("last-run").textContent = "Error loading data: " + e.message;
+    }
+  }
+
+  function buildAlertsFromData(reviews) {
+    if (!reviews.length) return [];
+    const analysed = reviews.filter(r => r.sentiment);
+    if (!analysed.length) return [];
+    const alerts = [];
+    const neg = analysed.filter(r => r.sentiment === "negative").length;
+    const negPct = Math.round((neg / analysed.length) * 100);
+    const avg = analysed.reduce((s, r) => s + r.rating, 0) / analysed.length;
+    const lowStar = Math.round((analysed.filter(r => r.rating <= 2).length / analysed.length) * 100);
+    const emerg = analysed.filter(r => r.is_emergency);
+    if (emerg.length) alerts.push({ msg: `${emerg.length} review${emerg.length > 1 ? "s" : ""} flagged for critical keywords` });
+    if (lowStar > 30) alerts.push({ msg: `${lowStar}% of reviews are 1–2 stars` });
+    if (negPct > 40) alerts.push({ msg: `${negPct}% negative sentiment detected` });
+    if (avg < 3.0) alerts.push({ msg: `Average rating ${avg.toFixed(1)} is below 3.0` });
+    return alerts;
+  }
+
+  // ── Run full pipeline ─────────────────────────────────────────────────────
+  async function runPipeline() {
+    const btn = document.getElementById("run-btn");
+    const status = document.getElementById("run-status");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Running…';
+    status.innerHTML = "";
+
+    try {
+      const res  = await fetch("/api/run", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Pipeline failed");
+      status.innerHTML = `<span class="status">✓ Pipeline complete — ${data.reviewCount} reviews analysed${data.alerts?.length ? `, ${data.alerts.length} alert(s) sent` : ""}. Email dispatched.</span>`;
+      await loadData();
+    } catch (e) {
+      status.innerHTML = `<span class="error">✗ Error: ${e.message}</span>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = "Run Analysis Now";
+  }
+
+  // ── Tab switching ─────────────────────────────────────────────────────────
+  function switchTab(name, el) {
+    ["dashboard", "reviews", "report"].forEach(t => {
+      document.getElementById("tab-" + t).style.display = t === name ? "" : "none";
+    });
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    el.classList.add("active");
+  }
+
+  // ── Dashboard ─────────────────────────────────────────────────────────────
+  function updateDashboard() {
+    const analysed = allReviews.filter(r => r.sentiment);
+
+    // Alert banner
+    const banner = document.getElementById("alert-banner");
+    if (latestAlerts.length) {
+      banner.style.display = "";
+      banner.innerHTML = `<div class="alert-box">
+        <div class="title">⚠ ${latestAlerts.length} Alert${latestAlerts.length > 1 ? "s" : ""} Detected</div>
+        <ul style="padding-left:16px">${latestAlerts.map(a => `<li>${a.msg}</li>`).join("")}</ul>
+      </div>`;
+    } else {
+      banner.style.display = "none";
+    }
+
+    if (!allReviews.length) return;
+
+    const avg = (allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length).toFixed(1);
+    const negPct = analysed.length ? Math.round((analysed.filter(r => r.sentiment === "negative").length / analysed.length) * 100) : null;
+    const crit = analysed.filter(r => r.priority === "critical").length;
+
+    document.getElementById("kpi-total").textContent  = allReviews.length;
+    document.getElementById("kpi-rating").textContent = avg + "★";
+    document.getElementById("kpi-neg").textContent    = negPct !== null ? negPct + "%" : "—";
+    document.getElementById("kpi-crit").textContent   = analysed.length ? crit : "—";
+
+    if (negPct > 40) document.getElementById("kpi-neg").style.color = "var(--danger)";
+    if (crit > 0)   document.getElementById("kpi-crit").style.color = "var(--danger)";
+
+    if (analysed.length) {
+      // Sentiment bars
+      const sentBars = document.getElementById("sentiment-bars");
+      sentBars.innerHTML = ["positive", "neutral", "negative"].map(s => {
+        const cnt  = analysed.filter(r => r.sentiment === s).length;
+        const pct  = Math.round((cnt / analysed.length) * 100);
+        const col  = s === "positive" ? "#16a34a" : s === "negative" ? "#dc2626" : "#9ca3af";
+        const tcol = s === "positive" ? "var(--success)" : s === "negative" ? "var(--danger)" : "var(--muted)";
+        return `<div class="bar-wrap">
+          <div class="bar-label">
+            <span style="color:${tcol};text-transform:capitalize">${s}</span>
+            <span style="color:var(--muted)">${cnt} (${pct}%)</span>
+          </div>
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${col};opacity:.8"></div></div>
+        </div>`;
+      }).join("");
+
+      // Priority grid
+      const pgrid = document.getElementById("priority-grid");
+      const priorityColors = { critical:"var(--danger)", high:"var(--warn)", medium:"var(--info)", low:"var(--muted)" };
+      const priorityBgs    = { critical:"var(--danger-bg)", high:"var(--warn-bg)", medium:"var(--info-bg)", low:"var(--bg)" };
+      pgrid.innerHTML = ["critical","high","medium","low"].map(p => {
+        const cnt = analysed.filter(r => r.priority === p).length;
+        return `<div style="background:${priorityBgs[p]};border-radius:10px;padding:12px 20px;text-align:center">
+          <div style="font-size:22px;font-weight:600;color:${priorityColors[p]}">${cnt}</div>
+          <div style="font-size:11px;color:${priorityColors[p]};text-transform:capitalize;margin-top:2px">${p}</div>
+        </div>`;
+      }).join("");
+    }
+  }
+
+  // ── Reviews ───────────────────────────────────────────────────────────────
+  function renderReviews() {
+    const fs = document.getElementById("filter-sentiment").value;
+    const fp = document.getElementById("filter-priority").value;
+    const filtered = allReviews.filter(r => {
+      if (fs !== "all" && r.sentiment !== fs) return false;
+      if (fp !== "all" && r.priority !== fp) return false;
+      return true;
+    });
+
+    document.getElementById("filter-count").textContent = `${filtered.length} of ${allReviews.length}`;
+
+    const list = document.getElementById("reviews-list");
+    if (!filtered.length) {
+      list.innerHTML = `<div class="no-data">No reviews match the current filters.</div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map(r => {
+      const cls   = r.is_emergency ? "emergency" : (r.priority || "");
+      const stars = "★".repeat(r.rating) + "☆".repeat(5 - r.rating);
+      const issues = (r.issues || []).map(i => `<span class="issue-tag">${i}</span>`).join("");
+      return `<div class="review-item ${cls}">
+        <div class="review-meta">
+          <span class="stars">${stars}</span>
+          <span class="badge" style="background:var(--bg);color:var(--muted)">${r.platform}</span>
+          ${r.sentiment ? `<span class="badge ${r.sentiment}">${r.sentiment}</span>` : ""}
+          ${r.priority  ? `<span class="badge ${r.priority}">${r.priority}</span>` : ""}
+          ${r.is_emergency ? `<span class="badge emerg">EMERGENCY</span>` : ""}
+          <span style="font-size:12px;color:var(--muted);margin-left:auto">${r.date}</span>
+        </div>
+        <div class="review-text">${r.text}</div>
+        ${r.summary ? `<div class="review-summary">${r.summary}</div>` : ""}
+        ${issues ? `<div class="issue-tags">${issues}</div>` : ""}
+      </div>`;
+    }).join("");
+  }
+
+  // ── Report ────────────────────────────────────────────────────────────────
+  function renderReport() {
+    const el = document.getElementById("report-content");
+    if (!latestReport) {
+      el.innerHTML = `<div class="no-data">No report yet. Click "Run Analysis Now" to generate one.</div>`;
+      return;
+    }
+    const r = latestReport;
+    const trend  = r.overall_trend || r.overallTrend || "stable";
+    const stats  = r.stats || {};
+    const probs  = r.top5_problems  || r.top5Problems  || [];
+    const pos    = r.top5_positives || r.top5Positives || [];
+    const acts   = r.recommended_actions || r.recommendedActions || [];
+    const execSumm = r.executive_summary || r.executiveSummary || "";
+
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="report-header">
+          <div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:2px">Weekly Report</div>
+            <div style="font-size:12px;color:var(--muted)">${new Date(r.generated_at || r.generatedAt).toLocaleString("en-IN")}</div>
+          </div>
+          <span class="trend ${trend}">${trend}</span>
+        </div>
+        <p class="exec-summary">${execSumm}</p>
+      </div>
+
+      <div class="grid4" style="margin-bottom:16px">
+        ${[["Reviews",stats.total],["Avg Rating",(stats.avgRating||"")+"★"],["Positive",stats.positive],["Negative",stats.negative]].map(([l,v])=>`
+          <div class="metric"><div class="label">${l}</div><div class="val">${v||"—"}</div></div>`).join("")}
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <p class="section-title red">🔴 Top problems</p>
+        <ul class="ranked-list">
+          ${probs.map(p=>`<li><span class="rank-num">${p.rank}</span><span style="flex:1">${p.issue}</span><span class="badge ${p.severity}">${p.severity}</span></li>`).join("")}
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <p class="section-title green">🟢 Top positives</p>
+        <ul class="ranked-list">
+          ${pos.map(p=>`<li><span class="rank-num">${p.rank}</span><span>${p.feature}</span></li>`).join("")}
+        </ul>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <p class="section-title">Recommended actions</p>
+        <ul class="actions-list">
+          ${acts.map((a,i)=>`<li><span class="act-num">${i+1}.</span><span>${a}</span></li>`).join("")}
+        </ul>
+      </div>
+
+      <button class="btn primary" onclick="runPipeline()">Regenerate Report</button>
+    `;
+  }
+
+  // Load on startup
+  loadData();
+</script>
+</body>
+</html>
