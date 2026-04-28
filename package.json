@@ -16,6 +16,6 @@
     "nodemailer": "^6.9.8",
     "cors": "^2.8.5",
     "google-play-scraper": "^9.1.0",
-    "app-store-scraper": "^0.22.0"
+    "app-store-scraper": "*"
   }
 }
