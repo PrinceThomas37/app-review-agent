@@ -462,6 +462,29 @@ app.get("/api/reports", async (req, res) => {
   res.json(data || []);
 });
 
+
+// Debug — shows raw AppFollow response to diagnose API format
+app.get("/api/debug", async (req, res) => {
+  try {
+    const cid = AF_ANDROID || AF_IOS;
+    if (!cid) return res.json({ error: "No CID configured" });
+    const attempts = [
+      `https://api.appfollow.io/api/1.0/reviews?cid=${cid}&per_page=3`,
+      `https://api.appfollow.io/api/1.0/reviews?app_id=${cid}&per_page=3`,
+      `https://api.appfollow.io/api/1.0/apps/${cid}/reviews?per_page=3`,
+    ];
+    const results = [];
+    for (const url of attempts) {
+      try {
+        const r = await fetch(url, { headers: { "X-AppFollow-API-Token": AF_KEY } });
+        const text = await r.text();
+        results.push({ url, status: r.status, body: text.slice(0, 600) });
+      } catch(e) { results.push({ url, error: e.message }); }
+    }
+    res.json({ android_cid: AF_ANDROID, ios_cid: AF_IOS, results });
+  } catch (e) { res.json({ error: e.message }); }
+});
+
 app.get("/health", (req, res) => {
   res.json({
     status: "ok", app: APP_NAME,
@@ -482,3 +505,4 @@ app.listen(PORT, () => {
   console.log(`iOS CID:     ${AF_IOS     || "not set"}`);
   console.log(`Schedule: Every Sunday 9:00 AM IST\n`);
 });
+// This line intentionally left blank
