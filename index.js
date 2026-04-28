@@ -87,7 +87,7 @@ async function callClaude(systemPrompt, userPrompt) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function fetchReviews() {
   console.log("Fetching reviews from AppFollow...");
-  const url = `https://api.appfollow.io/api/1.0/reviews?ext_id=${APPFOLLOW_APP}&country=all&per_page=50&page=1`;
+  const url = `https://api.appfollow.io/api/1.0/reviews?ext_id=${APPFOLLOW_APP}&country=all&per_page=10&page=1`;
   const res = await fetch(url, {
     headers: { "X-AppFollow-API-Token": APPFOLLOW_KEY },
   });
