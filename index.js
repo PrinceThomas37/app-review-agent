@@ -21,9 +21,9 @@ app.use(express.static(path.join(__dirname, "public")));
 // ─── ENV VARIABLES (set these in Render dashboard) ───────────────────────────
 // APPFOLLOW_API_KEY   — your AppFollow API key
 // APPFOLLOW_APP_ID    — your app's ext_id (e.g. com.yourapp.android or 1234567890)
-// ANTHROPIC_API_KEY   — from console.anthropic.com
+// GROQ_API_KEY        — from console.groq.com (free, no credit card needed)
 // SUPABASE_URL        — from your Supabase project settings
-// SUPABASE_KEY        — Supabase anon/service key
+// SUPABASE_KEY        — Supabase service_role key
 // GMAIL_USER          — your Gmail address (e.g. you@gmail.com)
 // GMAIL_APP_PASSWORD  — 16-char Gmail App Password (NOT your normal password)
 // REPORT_EMAIL        — where to send weekly reports (can be same as GMAIL_USER)
@@ -33,7 +33,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // NEGATIVE_PCT_THRESHOLD — % negative reviews that triggers alert (e.g. 40)
 // LOW_STAR_SPIKE_PCT  — % of 1-2 star reviews that triggers alert (e.g. 30)
 
-const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY;
+const GROQ_KEY        = process.env.GROQ_API_KEY;
 const APPFOLLOW_KEY   = process.env.APPFOLLOW_API_KEY;
 const APPFOLLOW_APP   = process.env.APPFOLLOW_APP_ID;
 const APP_NAME        = process.env.APP_NAME || "My App";
@@ -58,26 +58,27 @@ const transporter = nodemailer.createTransport({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPER: Call Claude API
+// HELPER: Call Groq API (free, no credit card needed)
 // ─────────────────────────────────────────────────────────────────────────────
 async function callClaude(systemPrompt, userPrompt) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${GROQ_KEY}`,
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5-20251001",
+      model: "llama-3.3-70b-versatile",
       max_tokens: 1500,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt   },
+      ],
     }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error?.message || "Claude API error");
-  const text = data.content?.[0]?.text || "";
+  if (!res.ok) throw new Error(data.error?.message || "Groq API error");
+  const text = data.choices?.[0]?.message?.content || "";
   return text.replace(/```json\n?|\n?```/g, "").trim();
 }
 
