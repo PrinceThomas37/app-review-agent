@@ -54,11 +54,14 @@ const supabase = createClient(
 
 // ─── EMAIL TRANSPORTER ───────────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
   },
+  tls: { rejectUnauthorized: false },
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -186,6 +189,8 @@ async function analyseReviews(reviews) {
   const results = [];
 
   for (let i = 0; i < reviews.length; i += 8) {
+    // Wait 3 seconds between batches to avoid Groq rate limits
+    if (i > 0) await new Promise(r => setTimeout(r, 3000));
     const batch = reviews.slice(i, i + 8);
     const input = batch.map((r, j) => ({
       i:        i + j,
